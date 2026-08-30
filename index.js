@@ -415,3 +415,595 @@ async function registrarComandos() {
 registrarComandos();
 
 client.login(process.env.DISCORD_TOKEN);
+const {
+    Client,
+    GatewayIntentBits,
+    REST,
+    Routes,
+    SlashCommandBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    EmbedBuilder,
+    ChannelType,
+    PermissionFlagsBits
+} = require("discord.js");
+
+// ==============================
+// CONFIGURAÇÕES
+// ==============================
+
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+
+// IDs DOS TÓPICOS DAS FILAS
+// Coloque aqui os IDs reais dos seus tópicos.
+const FILAS = {
+    "1x1": process.env.FILA_1X1_ID,
+    "2x2": process.env.FILA_2X2_ID,
+    "3x3": process.env.FILA_3X3_ID,
+    "4x4": process.env.FILA_4X4_ID
+};
+
+// ID da categoria onde as partidas serão criadas
+const CATEGORIA_PARTIDAS = process.env.CATEGORIA_PARTIDAS_ID;
+
+// ID do cargo dos mediadores
+const MEDIADOR_ROLE_ID = process.env.MEDIADOR_ROLE_ID;
+
+
+// ==============================
+// CLIENT
+// ==============================
+
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds
+    ]
+});
+
+
+// ==============================
+// FILAS
+// ==============================
+
+const filas = {
+    "1x1": [],
+    "2x2": [],
+    "3x3": [],
+    "4x4": []
+};
+
+const TAMANHO_FILA = {
+    "1x1": 2,
+    "2x2": 4,
+    "3x3": 6,
+    "4x4": 8
+};
+
+
+// ==============================
+// COMANDO /PAINEL
+// ==============================
+
+const commands = [
+    new SlashCommandBuilder()
+        .setName("painel")
+        .setDescription("Abre o painel de filas")
+        .toJSON()
+];
+
+
+// ==============================
+// REGISTRA COMANDO
+// ==============================
+
+async function registrarComandos() {
+
+    const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+    await rest.put(
+        Routes.applicationGuildCommands(
+            CLIENT_ID,
+            GUILD_ID
+        ),
+        {
+            body: commands
+        }
+    );
+
+    console.log("✅ /painel registrado.");
+}
+
+
+// ==============================
+// BOT ONLINE
+// ==============================
+
+client.once("ready", () => {
+
+    console.log(`🤖 Bot online como ${client.user.tag}`);
+
+    registrarComandos()
+        .catch(console.error);
+});
+
+
+// ==============================
+// PAINEL
+// ==============================
+
+function criarPainel() {
+
+    const embed = new EmbedBuilder()
+        .setTitle("🎮 Filas")
+        .setDescription(
+            "Escolha a fila que deseja entrar.\n\n" +
+            "🥊 **1x1** — 2 jogadores\n" +
+            "👥 **2x2** — 4 jogadores\n" +
+            "👥 **3x3** — 6 jogadores\n" +
+            "👥 **4x4** — 8 jogadores\n\n" +
+            "A fila é organizada automaticamente pelo menor valor para o maior."
+        );
+
+    const row1 = new ActionRowBuilder()
+        .addComponents(
+
+            new ButtonBuilder()
+                .setCustomId("fila_1x1")
+                .setLabel("1x1")
+                .setEmoji("🥊")
+                .setStyle(ButtonStyle.Primary),
+
+            new ButtonBuilder()
+                .setCustomId("fila_2x2")
+                .setLabel("2x2")
+                .setEmoji("👥")
+                .setStyle(ButtonStyle.Primary),
+
+            new ButtonBuilder()
+                .setCustomId("fila_3x3")
+                .setLabel("3x3")
+                .setEmoji("👥")
+                .setStyle(ButtonStyle.Primary),
+
+            new ButtonBuilder()
+                .setCustomId("fila_4x4")
+                .setLabel("4x4")
+                .setEmoji("👥")
+                .setStyle(ButtonStyle.Primary)
+        );
+
+    const row2 = new ActionRowBuilder()
+        .addComponents(
+
+            new ButtonBuilder()
+                .setCustomId("sair_fila")
+                .setLabel("Sair da fila")
+                .setEmoji("❌")
+                .setStyle(ButtonStyle.Danger)
+        );
+
+    return {
+        embeds: [embed],
+        components: [row1, row2]
+    };
+}
+
+
+// ==============================
+// INTERAÇÕES
+// ==============================
+
+client.on("interactionCreate", async interaction => {
+
+    try {
+
+        // ==========================
+        // /PAINEL
+        // ==========================
+
+        if (interaction.isChatInputCommand()) {
+
+            if (interaction.commandName === "painel") {
+
+                await interaction.reply({
+                    ...criarPainel()
+                });
+
+                return;
+            }
+        }
+
+
+        // ==========================
+        // BOTÕES
+        // ==========================
+
+        if (!interaction.isButton()) return;
+
+
+        // ==========================
+        // SAIR DA FILA
+        // ==========================
+
+        if (interaction.customId === "sair_fila") {
+
+            let saiu = false;
+
+            for (const nomeFila of Object.keys(filas)) {
+
+                const index = filas[nomeFila]
+                    .findIndex(
+                        jogador =>
+                            jogador.id === interaction.user.id
+                    );
+
+                if (index !== -1) {
+
+                    filas[nomeFila].splice(index, 1);
+
+                    saiu = true;
+
+                    await interaction.reply({
+                        content:
+                            `❌ Você saiu da **Fila ${nomeFila}**.`,
+                        ephemeral: true
+                    });
+
+                    break;
+                }
+            }
+
+            if (!saiu) {
+
+                await interaction.reply({
+                    content:
+                        "❌ Você não está em nenhuma fila.",
+                    ephemeral: true
+                });
+            }
+
+            return;
+        }
+
+
+        // ==========================
+        // ENTRAR NA FILA
+        // ==========================
+
+        if (interaction.customId.startsWith("fila_")) {
+
+            const nomeFila =
+                interaction.customId
+                    .replace("fila_", "");
+
+            if (!filas[nomeFila]) {
+
+                await interaction.reply({
+                    content: "❌ Essa fila não existe.",
+                    ephemeral: true
+                });
+
+                return;
+            }
+
+
+            // Verifica se já está em alguma fila
+
+            for (const fila of Object.keys(filas)) {
+
+                const jaEsta =
+                    filas[fila]
+                        .some(
+                            jogador =>
+                                jogador.id === interaction.user.id
+                        );
+
+                if (jaEsta) {
+
+                    await interaction.reply({
+                        content:
+                            `❌ Você já está na **Fila ${fila}**.`,
+                        ephemeral: true
+                    });
+
+                    return;
+                }
+            }
+
+
+            // ==========================
+            // VALOR
+            // ==========================
+
+            // Por enquanto usa 0.
+            // Se o seu sistema tiver um valor
+            // específico para cada jogador,
+            // troque aqui.
+
+            const valor = 0;
+
+
+            filas[nomeFila].push({
+
+                id: interaction.user.id,
+
+                username:
+                    interaction.user.username,
+
+                valor: Number(valor)
+            });
+
+
+            // ==========================
+            // ORDENA MENOR → MAIOR
+            // ==========================
+
+            filas[nomeFila].sort(
+                (a, b) => a.valor - b.valor
+            );
+
+
+            await interaction.reply({
+
+                content:
+                    `✅ Você entrou na **Fila ${nomeFila}**!`,
+
+                ephemeral: true
+            });
+
+
+            console.log(
+                `👤 ${interaction.user.tag} entrou na fila ${nomeFila}`
+            );
+
+
+            // ==========================
+            // VERIFICA SE COMPLETOU
+            // ==========================
+
+            if (
+                filas[nomeFila].length >=
+                TAMANHO_FILA[nomeFila]
+            ) {
+
+                await criarPartida(
+                    interaction.guild,
+                    nomeFila
+                );
+            }
+        }
+
+    } catch (error) {
+
+        console.error("❌ Erro:", error);
+
+        if (!interaction.replied) {
+
+            await interaction.reply({
+                content:
+                    "❌ Ocorreu um erro ao processar a ação.",
+                ephemeral: true
+            });
+        }
+    }
+});
+
+
+// ==============================
+// CRIAR PARTIDA
+// ==============================
+
+async function criarPartida(guild, nomeFila) {
+
+    const quantidade =
+        TAMANHO_FILA[nomeFila];
+
+
+    // Pega os jogadores da fila
+
+    const jogadores =
+        filas[nomeFila]
+            .splice(0, quantidade);
+
+
+    if (jogadores.length < quantidade) {
+        return;
+    }
+
+
+    // ==========================
+    // BUSCA MEMBROS
+    // ==========================
+
+    const membros = [];
+
+    for (const jogador of jogadores) {
+
+        const membro =
+            await guild.members
+                .fetch(jogador.id);
+
+        membros.push(membro);
+    }
+
+
+    // ==========================
+    // ESCOLHE MEDIADOR
+    // ==========================
+
+    const mediadores =
+        guild.members.cache.filter(
+            membro =>
+                membro.roles.cache.has(
+                    MEDIADOR_ROLE_ID
+                ) &&
+                !membro.user.bot
+        );
+
+
+    if (mediadores.size === 0) {
+
+        console.log(
+            "⚠️ Nenhum mediador encontrado."
+        );
+
+        return;
+    }
+
+
+    // Escolhe um mediador
+
+    const mediador =
+        mediadores
+            .random();
+
+
+    // ==========================
+    // PERMISSÕES
+    // ==========================
+
+    const permissionOverwrites = [
+
+        // Ninguém vê o canal
+        {
+            id: guild.roles.everyone.id,
+
+            deny: [
+                PermissionFlagsBits.ViewChannel
+            ]
+        },
+
+        // Mediador
+        {
+            id: mediador.id,
+
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory
+            ]
+        },
+
+        // Bot
+        {
+            id: client.user.id,
+
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.ManageChannels
+            ]
+        }
+    ];
+
+
+    // Adiciona os jogadores
+
+    for (const membro of membros) {
+
+        permissionOverwrites.push({
+
+            id: membro.id,
+
+            allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory
+            ]
+        });
+    }
+
+
+    // ==========================
+    // NOME DO CANAL
+    // ==========================
+
+    const nomes = membros
+        .slice(0, 4)
+        .map(
+            membro =>
+                membro.user.username
+        )
+        .join("-");
+
+
+    const nomeCanal =
+        `partida-${nomeFila}-${nomes}`
+            .toLowerCase()
+            .replace(/[^a-z0-9-_]/g, "")
+            .slice(0, 90);
+
+
+    // ==========================
+    // CRIA CANAL
+    // ==========================
+
+    const canal =
+        await guild.channels.create({
+
+            name: nomeCanal,
+
+            type: ChannelType.GuildText,
+
+            parent:
+                CATEGORIA_PARTIDAS || null,
+
+            permissionOverwrites
+        });
+
+
+    // ==========================
+    // MENSAGEM DA PARTIDA
+    // ==========================
+
+    let textoJogadores =
+        membros
+            .map(
+                (membro, index) =>
+                    `**${index + 1}.** ${membro}`
+            )
+            .join("\n");
+
+
+    const embed =
+        new EmbedBuilder()
+
+            .setTitle(
+                `🎮 Fila ${nomeFila} — Partida criada!`
+            )
+
+            .setDescription(
+
+                `**Jogadores:**\n` +
+                `${textoJogadores}\n\n` +
+
+                `🛡️ **Mediador:** ${mediador}\n\n` +
+
+                `O mediador será responsável por conduzir a partida.`
+            );
+
+
+    await canal.send({
+
+        content:
+            `${membros.join(" ")} ${mediador}`,
+
+        embeds: [embed]
+    });
+
+
+    console.log(
+        `🎮 Partida ${nomeFila} criada: #${canal.name}`
+    );
+}
+
+
+// ==============================
+// LOGIN
+// ==============================
+
+client.login(TOKEN);
